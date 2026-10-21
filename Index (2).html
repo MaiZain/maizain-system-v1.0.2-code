@@ -1144,7 +1144,8 @@ function webCard(){if(!webT)setTimeout(webLoad,0);if(!WEB.length||!can("ord.new"
     return `<tr><td>${esc(w.ts)}</td><td><b>${esc(w.n)}</b><br>${c?`<span class="tag d">إعادة طلب</span> <small>${esc(cno(c))} - ${esc(c.name)}${wDg(c.phone)!=wDg(w.ph)?" · هاتف مختلف":""}</small>`:`<span class="tag r">عميل جديد</span>`}</td><td dir="ltr">${esc(w.ph)}</td><td>${esc([wSp(w.em),w.a,w.ad].filter(Boolean).join(" — "))}${lk}</td><td><b>${esc(witems(w))}</b>${w.tot?`<br><small>التقديري ${esc(w.tot)} د.إ</small>`:""}</td><td>${esc(w.r||"0")}</td><td>${esc(wSp(w.tm))}</td><td>${esc(wSp(w.pm))}</td><td>${esc(w.nt||"—")}</td><td class="noprint"><button class="btn p" onclick="webAccept('${esc(w.id)}')">قبول الطلب</button> <button class="btn" onclick="webTake('${esc(w.id)}')">مراجعة وتعديل</button> <button class="btn d" onclick="webRej('${esc(w.id)}')">رفض</button></td></tr>`});
   return `<div class="card wcard"><h2>طلبات العملاء بانتظار القبول <span class="tag n">${WEB.length}</span></h2>`+tb(["وقت الطلب","العميل","الهاتف","العنوان","الأصناف المطلوبة","الفوارغ المستبدلة","وقت التوصيل","الدفع","ملاحظات",""],rows,"")+
     `<p class="note">«إعادة طلب» = العميل مسجل مسبقًا (بنفس رقم الجوال أو نفس الاسم) فيُضاف الطلب على حسابه دون تكرار العميل. «عميل جديد» = لا يطابق أي عميل، فيُسجَّل تلقائيًا عند «إدخال كطلب». «قبول الطلب» يسجّل الطلب مباشرة بأسعار الأصناف ويُصدر الفاتورة المبدئية، و«مراجعة وتعديل» يفتحه معبّأً لتعديله قبل الحفظ. تبقى كل الطلبات الواردة وحالتها في ورقة «طلبات النموذج» داخل قاعدة البيانات.</p></div>`}
-function webTake(id){if(!need("ord.new"))return;const w=WEB.find(x=>x.id==id);if(!w)return;
+function webTake(id){if(!need("ord.new"))return;webClaim(id,()=>webTake_(id))}
+function webTake_(id){const w=WEB.find(x=>x.id==id);if(!w)return;
   WACK[id]=1;wackSave();webAlarm();
   let c=webC(w);const old=c;
   if(c&&cBlk(c).blk){toast(blkMsg(c));return}
@@ -1158,7 +1159,8 @@ function webHook(o){if(!WEBP)return;const w=WEBP;WEBP=null;
   o.web=w.id;o.er=Math.max(0,Math.floor(+w.r||0));o.wn=[wSp(w.tm),+w.r?"فوارغ مستبدلة "+w.r:"",w.nt].filter(Boolean).join(" · ");
   WEB=WEB.filter(x=>x.id!=w.id);L(`الطلب #${o.id} من نموذج العملاء (${w.nu?"عميل جديد":"إعادة طلب"})`);
   if(window.SRV)SRV.call("webDone",w.id,1,o.id,"").catch(()=>toast("تعذر تحديث حالة طلب النموذج؛ سيظهر مرة أخرى في القائمة"))}
-function webRej(id){if(!need("ord.new"))return;const w=WEB.find(x=>x.id==id);if(!w)return;
+function webRej(id){if(!need("ord.new"))return;webClaim(id,()=>webRej_(id))}
+function webRej_(id){const w=WEB.find(x=>x.id==id);if(!w)return;
   WACK[id]=1;wackSave();webAlarm();
   dlg("رفض طلب العميل — "+w.n,[{k:"r",l:"سبب الرفض (اختياري، للسجل فقط)",t:"text",v:""}],v=>{
     WEB=WEB.filter(x=>x.id!=id);L("رفض طلب العميل "+id+": "+w.n+(v.r?" — "+v.r:""));
@@ -1247,7 +1249,27 @@ function webBanner(P){let b=$("wban");document.body.classList.toggle("wbon",!!P.
 function webLoad(){if(!window.SRV||!ME||!can("ord.new"))return;
   SRV.call("webList").then(R=>{R=R||[];const ch=R.length!=WEB.length||R.some(w=>!WEB.some(x=>x.id==w.id));WEB=R;webT=1;webAlarm();
     if(ch&&view=="ord"&&SRV.idleNow())draw()}).catch(()=>{})}
-function webAccept(id){if(!need("ord.new"))return;const w=WEB.find(x=>x.id==id);if(!w)return;
+var WCL={};
+function webGone(id,msg){WEB=WEB.filter(x=>x.id!=id);WACK[id]=1;wackSave();webAlarm();toast(msg);if(ME)draw()}
+function webClaim(id,go){const w=WEB.find(x=>x.id==id);if(!w)return;
+  const dup=st.o.find(o=>o.web==id&&o.s!="x");
+  if(dup){webGone(id,`طلب العميل ${id} مقبول مسبقًا كطلب #${dup.id} — لم يُكرَّر`);if(window.SRV)SRV.call("webDone",id,1,dup.id,"").catch(()=>{});return}
+  if(WCL[id]==1)return;
+  if(!window.SRV||WCL[id]==2){go();return}
+  WCL[id]=1;
+  SRV.call("webClaim",id).then(r=>{
+    if(r&&r.ok){WCL[id]=2;go();return}
+    delete WCL[id];
+    if(r&&r.gone){webGone(id,"لم يعد هذا الطلب موجودًا في قائمة الطلبات الواردة");return}
+    const by=r&&r.by?" بواسطة "+r.by:"";
+    if(r&&r.st=="قيد المعالجة"){webGone(id,`هذا الطلب يعالجه الآن مستخدم آخر${by} — لن يُقبل مرتين`);return}
+    webGone(id,`تمت معالجة هذا الطلب مسبقًا${by}: ${r&&r.st||""}${r&&r.oid?" (الطلب #"+r.oid+")":""}`);
+    if(SRV.load)SRV.load().then(()=>{if(ME)draw()}).catch(()=>{})
+  }).catch(e=>{delete WCL[id];const m=(e&&e.message)||"";
+    if(/BUSY|DEADLINE|Network|انقطع|تعذر/i.test(m)||SRV.off){toast("تعذر الوصول للخادم لحجز الطلب؛ أعد المحاولة بعد لحظات")}
+    else toast("تعذر حجز الطلب: "+m)})}
+function webAccept(id){if(!need("ord.new"))return;webClaim(id,()=>webAccept_(id))}
+function webAccept_(id){const w=WEB.find(x=>x.id==id);if(!w)return;
   WACK[id]=1;wackSave();webAlarm();
   let c=webC(w);const old=c;
   if(c&&cBlk(c).blk){toast(blkMsg(c)+" — الطلب لم يُقبل؛ راجعه من قائمة الطلبات الواردة");return}
@@ -2156,7 +2178,7 @@ boot();
 </script>
 <script>
 (function(){
-  var errs=[],shown=false;try{console.log("MAI ZAIN build 11.0.1 loader start")}catch(e){}
+  var errs=[],shown=false;try{console.log("MAI ZAIN build 11.0.3 loader start")}catch(e){}
   function box(t,body){var g=document.getElementById("gate");if(!g)return;g.className="gate on";
     g.innerHTML='<div style="max-width:560px;margin:40px auto;padding:20px;background:#fff;border:1px solid #c9e1f1;border-radius:12px;color:#0b2d5b;font-family:Arial,sans-serif"><h2 style="margin:0 0 10px;font-size:18px">'+t+'</h2>'+body+'</div>'}
   function esc(x){return String(x).replace(/[&<>]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;"}[c]})}
@@ -2169,8 +2191,8 @@ boot();
     try{var s=document.createElement("script");s.text="window.__mzStep="+i+";\n"+code;document.body.appendChild(s);ran=window.__mzStep===i}catch(e){errs.push(String(e))}
     if(!ran){try{(0,eval)(code)}catch(e){errs.push("script "+(i+1)+": "+((e&&e.message)||e));fail()}}
   }
-  if(typeof window.boot!=="function"){var sz=[];for(var j=0;j<L.length;j++)sz.push(L[j].textContent.length);errs.push("build 11.0.1: interface code missing (blocks="+L.length+", sizes="+sz.join("/")+", scripts="+document.scripts.length+")");}
-  try{console.log("MAI ZAIN build 11.0.1 loaded: blocks="+L.length+" boot="+typeof window.boot+" errors="+errs.length)}catch(e){}
+  if(typeof window.boot!=="function"){var sz=[];for(var j=0;j<L.length;j++)sz.push(L[j].textContent.length);errs.push("build 11.0.3: interface code missing (blocks="+L.length+", sizes="+sz.join("/")+", scripts="+document.scripts.length+")");}
+  try{console.log("MAI ZAIN build 11.0.3 loaded: blocks="+L.length+" boot="+typeof window.boot+" errors="+errs.length)}catch(e){}
   if(!errs.length)window.__MZ_OK=1;else fail();
   setTimeout(function(){var g=document.getElementById("gate");
     if(!g||!/جارٍ التحميل|Loading/.test(g.textContent))return;

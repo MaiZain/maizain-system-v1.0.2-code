@@ -17,7 +17,7 @@
  *   باقي الأوراق      نسخة مقروءة تُحدَّث تلقائيًا (العملاء، الطلبات، الفواتير، عهدة المناديب، أمانات العبوات...).
  */
 
-var VERSION = '11.0.1';
+var VERSION = '11.0.3';
 var CHUNK = 45000;                       // أقل من حد الخلية (50,000 حرف)
 var KV_COLS = ['users', 'activity', 'private', 'recovery'];
 var SH = {
@@ -428,6 +428,12 @@ function guard_(nw, old, s) {
     if (!Array.isArray(p.al) || p.al.some(function (x) { return !(Number(x.a) > 0); })) throw new Error('GUARD: توزيع سند القبض غير صالح');
     var t = p.al.reduce(function (a, x) { return a + Number(x.a); }, 0);
     if (Math.abs(r2(t) - r2(p.a)) > 0.01) throw new Error('GUARD: مبلغ سند القبض لا يطابق توزيعه على الفواتير');
+  });
+  // طلب العميل الوارد يُقبل مرة واحدة فقط (يمنع التكرار عند قبوله من مستخدمين في نفس الوقت)
+  var wc = function (st) { var m = {}; (st && st.o || []).forEach(function (o) { if (o && o.web && o.s !== 'x') m[o.web] = (m[o.web] || 0) + 1; }); return m; };
+  var W1 = wc(nw), W0 = wc(old);
+  Object.keys(W1).forEach(function (k) {
+    if (W1[k] > 1 && W1[k] > (W0[k] || 0)) throw new Error('GUARD: طلب العميل ' + k + ' مقبول مسبقًا كطلب آخر؛ لا يُقبل مرتين');
   });
   var A = alloc_(nw), A0 = alloc_(old || {});
   (nw.iv || []).forEach(function (v) {
@@ -1252,7 +1258,7 @@ function webList_() {
   var sh = webSheet_(), n = sh.getLastRow();
   if (n < 2) return [];
   return sh.getRange(2, 1, n - 1, WEB_HEAD.length).getValues()
-    .filter(function (r) { return String(r[14]) === WEB_NEW; })
+    .filter(function (r) { return String(r[14]) === WEB_NEW && !webCl_(String(r[0])); })
     .map(function (r) {
       var o = {};
       WEB_KEYS.forEach(function (k, i) { o[k] = String(r[i]).replace(/^'/, ''); });
@@ -1263,7 +1269,37 @@ function webList_() {
     });
 }
 
-/** ok=1: قُبل وأُدخل كطلب في النظام، ok=0: مرفوض (مع سبب اختياري). */
+/** حجز الطلب الوارد قبل قبوله أو رفضه، يمنع أن يقبله مستخدمان في نفس الوقت. */
+var WEB_CLAIM_TTL = 600;   // يعود الطلب للظهور بعد 10 دقائق إن لم يُستكمل
+function webCl_(id) {
+  try { var x = cache_().get('WC:' + id); return x ? JSON.parse(x) : null; } catch (e) { return null; }
+}
+
+function webClaim(tok, id) {
+  var s = auth_(tok, 'web|ord.new|approve');
+  var lock = LockService.getScriptLock();
+  lock_(lock);
+  try {
+    var sh = webSheet_(), n = sh.getLastRow();
+    if (n < 2) return { ok: false, gone: 1 };
+    var R = sh.getRange(2, 1, n - 1, 18).getValues();
+    for (var i = 0; i < R.length; i++) {
+      if (String(R[i][0]) !== String(id)) continue;
+      var stt = String(R[i][14]);
+      if (stt !== WEB_NEW) return { ok: false, st: stt, oid: String(R[i][15] || ''), by: String(R[i][16] || '') };
+      var cl = webCl_(id);
+      if (cl && cl.u !== s.u) return { ok: false, st: 'قيد المعالجة', by: cl.n };
+      cache_().put('WC:' + id, JSON.stringify({ u: s.u, n: s.name + ' (' + s.u + ')' }), WEB_CLAIM_TTL);
+      cache_().remove('WEB');
+      return { ok: true };
+    }
+    return { ok: false, gone: 1 };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** ok=1: قُبل وأُدخل كطلب في النظام، ok=0: مرفوض (مع سبب اختياري). لا يُعاد معالجة طلب سبق قبوله أو رفضه. */
 function webDone(tok, id, ok, oid, why) {
   var s = auth_(tok, 'web|ord.new|approve');
   var lock = LockService.getScriptLock();
@@ -1274,10 +1310,12 @@ function webDone(tok, id, ok, oid, why) {
     var ids = sh.getRange(2, 1, n - 1, 1).getValues();
     for (var i = 0; i < ids.length; i++) {
       if (String(ids[i][0]) !== String(id)) continue;
+      if (String(sh.getRange(i + 2, 15).getValue()) !== WEB_NEW) { cache_().remove('WC:' + id); cache_().remove('WEB'); return false; }
       var stt = ok ? 'قُبل وأُدخل' : 'مرفوض' + (why ? ': ' + clip_(why, 200) : '');
       sh.getRange(i + 2, 15, 1, 4).setNumberFormat('@').setValues([[stt, oid ? String(oid) : '', clip_(s.name + ' (' + s.u + ')', 120),
         Utilities.formatDate(new Date(), 'Asia/Dubai', 'yyyy-MM-dd HH:mm')]]);
       cache_().remove('WEB');
+      cache_().remove('WC:' + id);
       return true;
     }
     return false;
