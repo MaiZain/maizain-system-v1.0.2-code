@@ -1250,15 +1250,26 @@ function webLoad(){if(!window.SRV||!ME||!can("ord.new"))return;
   SRV.call("webList").then(R=>{R=R||[];const ch=R.length!=WEB.length||R.some(w=>!WEB.some(x=>x.id==w.id));WEB=R;webT=1;webAlarm();
     if(ch&&view=="ord"&&SRV.idleNow())draw()}).catch(()=>{})}
 var WCL={};
+var wSig=w=>(w.it&&w.it.length?w.it:[{pid:1,q:+w.q||1}]).map(i=>i.pid+":"+Math.floor(+i.q)).sort().join(","),
+  oSig=o=>(o.items&&o.items.length?o.items:[{pid:o.pid,q:o.q}]).map(i=>i.pid+":"+Math.floor(+i.q)).sort().join(",");
+/* طلب وارد مطابق لطلب مفتوح لنفس العميل (لم يُسلَّم بعد) = غالبًا إرسال مكرر من العميل؛ يُسأل الموظف قبل القبول */
+function webDupAsk(w,id,go){const c=webC(w),sg=wSig(w);
+  const d=c&&st.o.find(o=>o.cid==c.id&&o.web&&o.web!=id&&"nc".includes(o.s)&&oSig(o)==sg);
+  if(!d){go();return}
+  dlg("تنبيه: طلب مكرر محتمل — "+esc(w.n),[{k:"a",l:`للعميل طلب مفتوح مطابق لم يُسلَّم بعد: الطلب #${d.id} (${esc(d.d)}) بنفس الأصناف والكميات. غالبًا أرسل العميل الطلب مرتين.`,s:["رفض هذا الطلب كمكرر","قبوله كطلب منفصل"],v:"رفض هذا الطلب كمكرر"}],v=>{
+    if(v.a.startsWith("قبوله")){L(`قبول طلب العميل ${id} رغم وجود طلب مطابق مفتوح #${d.id}`);setTimeout(go,60);return}
+    WEB=WEB.filter(x=>x.id!=id);WACK[id]=1;wackSave();webAlarm();L(`رفض طلب العميل ${id} كمكرر للطلب #${d.id}`);
+    if(window.SRV)SRV.call("webDone",id,0,"","مكرر من الطلب #"+d.id).catch(()=>{})})}
 function webGone(id,msg){WEB=WEB.filter(x=>x.id!=id);WACK[id]=1;wackSave();webAlarm();toast(msg);if(ME)draw()}
 function webClaim(id,go){const w=WEB.find(x=>x.id==id);if(!w)return;
   const dup=st.o.find(o=>o.web==id&&o.s!="x");
   if(dup){webGone(id,`طلب العميل ${id} مقبول مسبقًا كطلب #${dup.id} — لم يُكرَّر`);if(window.SRV)SRV.call("webDone",id,1,dup.id,"").catch(()=>{});return}
   if(WCL[id]==1)return;
-  if(!window.SRV||WCL[id]==2){go();return}
+  if(!window.SRV){webDupAsk(w,id,go);return}
+  if(WCL[id]==2){go();return}
   WCL[id]=1;
   SRV.call("webClaim",id).then(r=>{
-    if(r&&r.ok){WCL[id]=2;go();return}
+    if(r&&r.ok){WCL[id]=2;webDupAsk(w,id,go);return}
     delete WCL[id];
     if(r&&r.gone){webGone(id,"لم يعد هذا الطلب موجودًا في قائمة الطلبات الواردة");return}
     const by=r&&r.by?" بواسطة "+r.by:"";
@@ -2178,7 +2189,7 @@ boot();
 </script>
 <script>
 (function(){
-  var errs=[],shown=false;try{console.log("MAI ZAIN build 11.0.3 loader start")}catch(e){}
+  var errs=[],shown=false;try{console.log("MAI ZAIN build 11.0.4 loader start")}catch(e){}
   function box(t,body){var g=document.getElementById("gate");if(!g)return;g.className="gate on";
     g.innerHTML='<div style="max-width:560px;margin:40px auto;padding:20px;background:#fff;border:1px solid #c9e1f1;border-radius:12px;color:#0b2d5b;font-family:Arial,sans-serif"><h2 style="margin:0 0 10px;font-size:18px">'+t+'</h2>'+body+'</div>'}
   function esc(x){return String(x).replace(/[&<>]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;"}[c]})}
@@ -2191,8 +2202,8 @@ boot();
     try{var s=document.createElement("script");s.text="window.__mzStep="+i+";\n"+code;document.body.appendChild(s);ran=window.__mzStep===i}catch(e){errs.push(String(e))}
     if(!ran){try{(0,eval)(code)}catch(e){errs.push("script "+(i+1)+": "+((e&&e.message)||e));fail()}}
   }
-  if(typeof window.boot!=="function"){var sz=[];for(var j=0;j<L.length;j++)sz.push(L[j].textContent.length);errs.push("build 11.0.3: interface code missing (blocks="+L.length+", sizes="+sz.join("/")+", scripts="+document.scripts.length+")");}
-  try{console.log("MAI ZAIN build 11.0.3 loaded: blocks="+L.length+" boot="+typeof window.boot+" errors="+errs.length)}catch(e){}
+  if(typeof window.boot!=="function"){var sz=[];for(var j=0;j<L.length;j++)sz.push(L[j].textContent.length);errs.push("build 11.0.4: interface code missing (blocks="+L.length+", sizes="+sz.join("/")+", scripts="+document.scripts.length+")");}
+  try{console.log("MAI ZAIN build 11.0.4 loaded: blocks="+L.length+" boot="+typeof window.boot+" errors="+errs.length)}catch(e){}
   if(!errs.length)window.__MZ_OK=1;else fail();
   setTimeout(function(){var g=document.getElementById("gate");
     if(!g||!/جارٍ التحميل|Loading/.test(g.textContent))return;

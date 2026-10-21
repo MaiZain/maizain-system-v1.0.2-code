@@ -17,7 +17,7 @@
  *   باقي الأوراق      نسخة مقروءة تُحدَّث تلقائيًا (العملاء، الطلبات، الفواتير، عهدة المناديب، أمانات العبوات...).
  */
 
-var VERSION = '11.0.3';
+var VERSION = '11.0.4';
 var CHUNK = 45000;                       // أقل من حد الخلية (50,000 حرف)
 var KV_COLS = ['users', 'activity', 'private', 'recovery'];
 var SH = {
@@ -1362,6 +1362,14 @@ function pubOrder(o) {
   });
   if (!it.length) throw new Error('اختر صنفًا واحدًا على الأقل / Choose at least one item');
   var r = Math.max(0, Math.min(500, Math.floor(Number(o.r) || 0)));
+  // إرسال مكرر لنفس الطلب (نفس الرقم ونفس الأصناف والفوارغ) خلال 30 دقيقة يُعاد له نفس المرجع ولا يُسجَّل مرتين
+  var sig = 'POD:' + dk + ':' + it.map(function (x) { return x.pid + 'x' + x.q; }).sort().join('.') + ':' + r, prev = c.get(sig);
+  if (prev) {
+    try {
+      var pr = JSON.parse(prev), row = Number(String(pr.ref).split('-').pop());
+      if (row > 1 && !/^مرفوض/.test(String(webSheet_().getRange(row, 15).getValue()))) return { ok: true, ref: pr.ref, total: pr.total, dup: 1 };
+    } catch (e) { /* يُكمل كطلب جديد */ }
+  }
   var lat = Number(o.lat), lng = Number(o.lng), ll = inUAE_(lat, lng);
   var w = {
     n: str(o.n, 80), ph: ph, t: str(o.t, 40), em: str(o.em, 30), a: str(o.a, 60), ad: str(o.ad, 200),
@@ -1371,6 +1379,7 @@ function pubOrder(o) {
     lat: ll ? lat : '', lng: ll ? lng : '', src: 'صفحة الطلب'
   };
   var id = webAdd_(w);
+  c.put(sig, JSON.stringify({ ref: id, total: w.tot }), 1800);
   c.put('POG', String(g + 1), 600);
   c.put('PO:' + dk, String(pp + 1), 600);
   try {
