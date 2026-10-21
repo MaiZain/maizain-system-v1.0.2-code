@@ -148,13 +148,17 @@ function send(e) {
     var wa = String((CAT.co && CAT.co.p) || '').replace(/\D/g, '');
     $('app').innerHTML = '<div class="card ok"><div class="big">✅</div><h2>تم استلام طلبك! / Order received</h2><p>رقم الطلب / Reference: <b dir="ltr">' + esc(r.ref || '') + '</b></p><p>الإجمالي التقديري: <b>' + f2(r.total) + ' د.إ</b></p><p class="note">سنتواصل معك قريبًا لتأكيد موعد التوصيل. / We will contact you shortly to confirm delivery.</p>' +
       (wa ? '<a class="btn" style="text-decoration:none;margin-top:12px" href="https://wa.me/' + wa + '?text=' + encodeURIComponent('مرحبًا، أرسلت طلبًا من صفحة الطلب برقم ' + (r.ref || '')) + '" target="_blank" rel="noopener">تواصل عبر واتساب / WhatsApp us</a>' : '') +
-      '<button class="btn s" style="margin-top:10px" onclick="location.reload()">طلب جديد / New order</button></div>';
+      (OURL ? '<a id="again" class="btn s" style="text-decoration:none;margin-top:10px" href="' + esc(OURL) + '" target="_top">طلب جديد / New order</a>'
+            : '<button id="again" class="btn s" style="margin-top:10px" onclick="location.reload()">طلب جديد / New order</button>') + '</div>';
   }).withFailureHandler(function (x) {
     $('ld').classList.remove('on'); $('go').disabled = false;
     err((x && x.message) || 'تعذر إرسال الطلب. حاول مرة أخرى أو تواصل عبر واتساب.');
   }).pubOrder(o);
   return false;
 }
+// رابط صفحة الطلب من البرنامج نفسه، ليعيد زر «طلب جديد» العميل إليها في نفس النافذة
+var OURL = '';
+google.script.run.withSuccessHandler(function (i) { var u = (i && i.url) || ''; if (/^https:\/\//.test(u)) OURL = u.split('?')[0] + '?p=order'; }).withFailureHandler(function () {}).appInfo();
 google.script.run.withSuccessHandler(function (c) { CAT = c; render(); }).withFailureHandler(function () {
   $('items').innerHTML = '<p class="note">تعذر تحميل الأصناف. أعد تحميل الصفحة.</p>';
 }).pubCatalog();
